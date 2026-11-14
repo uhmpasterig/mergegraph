@@ -8,17 +8,18 @@ type Theme = 'light' | 'dark' | 'night';
 const SYSTEM = "-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif";
 const THEMES = {
   light: {
-    bg: '', pad: 0, rx: 2, glow: false, font: SYSTEM, line: '#d1d9e0', title: ['#1f2328', 14, ''], text: '#59636e', strong: '#59636e',
-    cells: ['#eff2f5', '#aceebb', '#4ac26b', '#2da44e', '#116329'],
+    bg: '', pad: 0, rx: 2, glow: false, stats: false, font: SYSTEM, title: ['#1f2328', 14, ''], text: '#59636e', strong: '#1f2328',
+    rail: '#d1d9e0', accent: ['#2da44e', '#116329'], cells: ['#eff2f5', '#aceebb', '#4ac26b', '#2da44e', '#116329'],
   },
   dark: {
-    bg: '', pad: 0, rx: 2, glow: false, font: SYSTEM, line: '#3d444d', title: ['#f0f6fc', 14, ''], text: '#9198a1', strong: '#9198a1',
-    cells: ['#151b23', '#033a16', '#196c2e', '#2ea043', '#56d364'],
+    bg: '', pad: 0, rx: 2, glow: false, stats: false, font: SYSTEM, title: ['#f0f6fc', 14, ''], text: '#9198a1', strong: '#f0f6fc',
+    rail: '#3d444d', accent: ['#2ea043', '#196c2e'], cells: ['#151b23', '#033a16', '#196c2e', '#2ea043', '#56d364'],
   },
-  // A slate night sky; each day is a window: dark, glowing, dim, lit, lamp-bright.
+  // A slate night sky; each day is a window: dark, glowing, dim, lit, lamp-bright. The total is one big
+  // number, the sources small stats with a lamp edge, the years stops on a line.
   night: {
-    bg: '#172029', pad: 28, rx: 0, glow: true, font: `Inter,${SYSTEM}`, line: 'rgba(255,255,255,0.11)', title: ['#ffffff', 17, '600'], text: '#9aa5b0', strong: '#c9d1d9',
-    cells: ['#1e252c', '#5c5034', '#a07b3c', '#f0c46a', '#ffe3a3'],
+    bg: '#172029', pad: 32, rx: 0, glow: true, stats: true, font: `Inter,${SYSTEM}`, title: ['#ffffff', 34, '650'], text: '#9aa5b0', strong: '#c9d1d9',
+    rail: '#3a4652', accent: ['#f0b54d', '#8a5806'], cells: ['#1e252c', '#5c5034', '#a07b3c', '#f0c46a', '#ffe3a3'],
   },
 } as const satisfies Record<Theme, unknown>;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -26,8 +27,8 @@ const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 const CELL = 10;
 const STEP = 13;
-const LABEL = 32; // weekday and year labels left of the grid
-const TOTAL = 56; // year totals right of the weekly rows
+const LABEL = 32; // weekday labels left of the grid
+const BAR = 64; // tallest weekly bar on the line
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -56,28 +57,24 @@ export function range(year: number | null, now = new Date()): { from: Date; to: 
   return { from: new Date(Date.UTC(to.getUTCFullYear() - 1, to.getUTCMonth(), to.getUTCDate() + 1)), to };
 }
 
-/** One row per year (newest first) with weekly totals up to `to`; sparse leading years are left out. */
-export function yearRows(all: Days, to: Date): { year: number; total: number; weeks: number[] }[] {
+/** Weekly totals from the first busy year up to `to`; leading years under 2 % of the busiest are left out. */
+export function weekly(all: Days, to: Date): { first: number; start: number; weeks: number[]; totals: Map<number, number> } | null {
   const totals = new Map<number, number>();
   for (const [date, n] of Object.entries(all)) {
     if (date <= iso(to)) totals.set(Number(date.slice(0, 4)), (totals.get(Number(date.slice(0, 4))) ?? 0) + n);
   }
-  if (totals.size === 0) return [];
+  if (totals.size === 0) return null;
   const busiest = Math.max(...totals.values());
-  const years = [...totals.keys()].sort((a, b) => a - b);
-  while (years.length > 1 && totals.get(years[0])! < busiest * 0.02) years.shift();
-  const rows = [];
-  for (let year = to.getUTCFullYear(); year >= years[0]; year--) {
-    const jan1 = Date.UTC(year, 0, 1);
-    const start = jan1 - new Date(jan1).getUTCDay() * DAY;
-    const weeks: number[] = [];
-    for (let t = jan1; t < Date.UTC(year + 1, 0, 1) && t <= to.getTime(); t += DAY) {
-      const w = Math.floor((t - start) / WEEK);
-      weeks[w] = (weeks[w] ?? 0) + (all[iso(new Date(t))] ?? 0);
-    }
-    rows.push({ year, total: totals.get(year) ?? 0, weeks: Array.from(weeks, (n) => n ?? 0) });
+  let first = Math.min(...totals.keys());
+  while ((totals.get(first) ?? 0) < busiest * 0.02) first++;
+  const jan1 = Date.UTC(first, 0, 1);
+  const start = jan1 - new Date(jan1).getUTCDay() * DAY; // weeks start on Sunday, like the grid
+  const weeks: number[] = [];
+  for (let t = jan1; t <= to.getTime(); t += DAY) {
+    const w = Math.floor((t - start) / WEEK);
+    weeks[w] = (weeks[w] ?? 0) + (all[iso(new Date(t))] ?? 0);
   }
-  return rows;
+  return { first, start, weeks: Array.from(weeks, (n) => n ?? 0), totals };
 }
 
 export function render(o: { gh: Days; ext: Days; from: Date; to: Date; label: string; theme: Theme; years?: boolean }): string {
@@ -97,57 +94,101 @@ export function render(o: { gh: Days; ext: Days; from: Date; to: Date; label: st
   }
   const all: Days = { ...o.gh };
   for (const [date, n] of Object.entries(o.ext)) all[date] = (all[date] ?? 0) + n;
-  const rows = o.years ? yearRows(all, o.to) : [];
 
   const cols = days[days.length - 1].col + 1;
-  const wide = Math.max(cols, ...rows.map((r) => r.weeks.length)); // some years start a 54th week
   const x0 = t.pad + LABEL;
-  const right = x0 + (wide - 1) * STEP + CELL + (rows.length ? TOTAL : 0);
+  const right = x0 + (cols - 1) * STEP + CELL;
   const fmt = (n: number) => n.toLocaleString('en-US');
+  const r1 = (n: number) => Math.round(n * 10) / 10;
   const glow: string[] = [];
-  const rect = (x: number, y: number, level: number) => {
-    if (t.glow && level === 4) glow.push(`<rect x="${x - 1}" y="${y - 1}" width="${CELL + 2}" height="${CELL + 2}"/>`);
-    return `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}"${t.rx ? ` rx="${t.rx}"` : ''} fill="${t.cells[level]}"/>`;
+  const rect = (x: number, y: number, level: number, w: number = CELL, h: number = CELL) => {
+    if (t.glow && level === 4) glow.push(`<rect x="${r1(x - 1)}" y="${y - 1}" width="${r1(w + 2)}" height="${h + 2}"/>`);
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}"${t.rx ? ` rx="${t.rx}"` : ''} fill="${t.cells[level]}"/>`;
   };
   const label = (x: number, y: number, s: string, attrs = '') => `<text x="${x}" y="${y}"${attrs}>${s}</text>`;
   const end = ' text-anchor="end"';
+  const parts: string[] = [];
 
-  const head = t.pad + titleSize;
-  let y = t.pad + (t.pad ? 50 : 40);
+  let y: number;
+  if (t.stats) {
+    y = t.pad + 96;
+    parts.push(
+      label(t.pad, t.pad + 30, fmt(gh + ext), ` font-size="${titleSize}" font-weight="${titleWeight}" letter-spacing="-0.03em" fill="${titleColor}"`),
+      label(t.pad, t.pad + 52, `contributions ${o.label}`, ' font-size="13"'),
+    );
+    if (ext > 0) {
+      ([['GitLab', ext], ['GitHub', gh]] as const).forEach(([source, n], i) => {
+        const x = right - i * 104 - 92;
+        parts.push(
+          `<rect x="${x}" y="${t.pad + 6}" width="3" height="40" fill="${t.accent[0]}"/>`,
+          label(x + 13, t.pad + 22, source),
+          label(x + 13, t.pad + 42, fmt(n), ` font-size="17" font-weight="600" fill="${titleColor}"`),
+        );
+      });
+    }
+  } else {
+    const head = t.pad + titleSize;
+    y = t.pad + (t.pad ? 50 : 40);
+    parts.push(
+      label(t.pad, head, `${fmt(gh + ext)} contributions ${o.label}`, ` font-size="${titleSize}"${titleWeight ? ` font-weight="${titleWeight}"` : ''} fill="${titleColor}"`),
+      ext > 0 ? label(right, head, `GitHub ${fmt(gh)} · GitLab ${fmt(ext)}`, end) : '',
+    );
+  }
   const level = levels(days.map((x) => x.n));
-  const parts = [
-    label(t.pad, head, `${fmt(gh + ext)} contributions ${o.label}`, ` font-size="${titleSize}"${titleWeight ? ` font-weight="${titleWeight}"` : ''} fill="${titleColor}"`),
-    ext > 0 ? label(right, head, `GitHub ${fmt(gh)} · GitLab ${fmt(ext)}`, end) : '',
+  parts.push(
     ...days
       .filter(({ d, col }) => d.getUTCDate() === 1 && col < cols - 1) // a label needs two columns
       .map(({ d, col }) => label(x0 + col * STEP, y - 8, MONTHS[d.getUTCMonth()])),
     ...(['Mon', 'Wed', 'Fri'] as const).map((s, i) => label(t.pad, y + (2 * i + 1) * STEP + 9, s)),
     ...days.map(({ d, n, col }) => rect(x0 + col * STEP, y + d.getUTCDay() * STEP, level(n))),
-  ];
+  );
   y += 7 * STEP;
 
-  if (rows.length) {
-    const weekly = levels(rows.flatMap((r) => r.weeks));
-    y += 18;
-    parts.push(`<line x1="${t.pad}" x2="${right}" y1="${y}" y2="${y}" stroke="${t.line}"/>`, label(t.pad, y + 22, 'Weekly, all years'));
+  // The years as a line: every week a bar standing on the rail, one stop per year, the current one lit.
+  const line = o.years ? weekly(all, o.to) : null;
+  if (line) {
+    const { first, start: t0, weeks, totals } = line;
     y += 34;
-    for (const row of rows) {
-      parts.push(label(t.pad, y + 9, String(row.year), ` fill="${t.strong}"`));
-      row.weeks.forEach((n, c) => parts.push(rect(x0 + c * STEP, y, weekly(n))));
-      parts.push(label(right, y + 9, fmt(row.total), end));
-      y += STEP + 4;
+    parts.push(label(t.pad, y, `Every week since ${first}`));
+    y += 16 + BAR;
+    const x1 = t.pad + 6;
+    const x2 = right - 6;
+    const step = (x2 - x1) / weeks.length;
+    const max = Math.max(...weeks);
+    const bar = levels(weeks);
+    weeks.forEach((n, i) => {
+      if (n) {
+        const h = Math.max(2, Math.round(BAR * Math.sqrt(n / max))); // sqrt: quiet years stay visible
+        parts.push(rect(r1(x1 + i * step), y - h, bar(n), Math.max(1.2, r1(step - 1)), h));
+      }
+    });
+    parts.push(`<rect x="${x1}" y="${y + 3}" width="${x2 - x1}" height="3" fill="${t.rail}"/>`);
+    const now = o.to.getUTCFullYear();
+    const every = Math.ceil(56 / (52 * step)); // label every n-th stop when the years get narrow
+    for (let year = first; year <= now; year++) {
+      const x = r1(x1 + 1 + Math.floor((Date.UTC(year, 0, 1) - t0) / WEEK) * step);
+      const lit = year === now;
+      parts.push(`<circle cx="${x}" cy="${y + 4.5}" r="5.5" fill="${lit ? t.accent[0] : t.bg || t.cells[0]}" stroke="${lit ? t.accent[1] : t.rail}" stroke-width="3"/>`);
+      if ((year - first) % every && !lit) continue;
+      const near = x > x2 - 48 ? end : ''; // keep the last labels inside the card
+      const lx = near ? x + 6 : x - 5;
+      parts.push(label(lx, y + 30, String(year), ` font-weight="600" fill="${t.strong}"${near}`), label(lx, y + 46, fmt(totals.get(year) ?? 0), near));
     }
-    y -= 4;
+    parts.push(`<circle cx="${x2}" cy="${y + 4.5}" r="3" fill="${t.accent[0]}"/>`); // today
+    y += 46;
   }
 
-  y += t.pad ? 18 : 8;
-  parts.push(
-    label(right - 36 - 5 * STEP, y + 9, 'Less', end),
-    ...t.cells.map((_, i) => rect(right - 32 - 5 * STEP + i * STEP, y, i)),
-    label(right, y + 9, 'More', end),
-  );
+  if (!t.stats) {
+    y += 8;
+    parts.push(
+      label(right - 36 - 5 * STEP, y + 9, 'Less', end),
+      ...t.cells.map((_, i) => rect(right - 32 - 5 * STEP + i * STEP, y, i)),
+      label(right, y + 9, 'More', end),
+    );
+    y += CELL;
+  }
   const width = right + t.pad;
-  const height = y + CELL + (t.pad || 4);
+  const height = y + (t.pad ? t.pad - 4 : 4);
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
     `font-family="${t.font}" font-size="12" fill="${t.text}">` +

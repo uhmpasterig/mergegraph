@@ -18,8 +18,8 @@ The default is the last 12 months; `?year=2023` shows one calendar year. Without
 | Option | Effect |
 | --- | --- |
 | `theme=light` / `dark` | GitHub's look (default `light`) |
-| `theme=night` | A card of its own: every day a window at night, from dark to lamp-bright. Looks the same in light and dark mode, so no `<picture>` needed. |
-| `years=all` | Adds one row per year below the graph, one cell per week, all on one scale. Quiet early years are left out. |
+| `theme=night` | A card of its own: every day a window at night, from dark to lamp-bright, the total as one big number and GitHub and GitLab as small stats. Looks the same in light and dark mode, so no `<picture>` needed. |
+| `years=all` | Adds a line below the graph: every week since your first busy year as a bar, one stop per year with its total. Quiet early years are left out. |
 
 ![night theme with all years](https://mergegraph-snowy.vercel.app/uhmpasterig.svg?theme=night&years=all)
 

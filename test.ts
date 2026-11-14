@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { AddressInfo } from 'node:net';
-import { GET, clean, levels, range, render, yearRows } from './api/graph.ts';
+import { GET, clean, levels, range, render, weekly } from './api/graph.ts';
 
 test('GET rejects invalid params before any fetch', async () => {
   for (const qs of ['user=../etc', 'user=octo&year=1999', 'user=octo&theme=pink', 'user=octo&years=3']) {
@@ -84,24 +84,29 @@ test('render adds both sources inside the range only', () => {
   assert.doesNotMatch(render({ gh, ext: {}, from, to, label: 'in 2024', theme: 'dark' }), /GitLab/);
 });
 
-test('yearRows: newest first, weekly sums, gap years kept, sparse leading years dropped', () => {
+test('weekly: from the first busy year up to `to`, sparse leading years dropped', () => {
   const all = { '2021-03-01': 1, '2023-01-01': 60, '2023-01-07': 40, '2023-01-08': 5, '2026-01-05': 200, '2026-12-01': 9 };
-  const rows = yearRows(all, new Date('2026-11-14'));
-  assert.deepEqual(rows.map((r) => [r.year, r.total]), [[2026, 200], [2025, 0], [2024, 0], [2023, 105]]); // 2021: 1 < 2 % of 200
-  assert.deepEqual(rows[3].weeks.slice(0, 2), [100, 5]); // 2023-01-01 is a Sunday: one week, then the next
-  assert.equal(rows[0].weeks.reduce((a, b) => a + b), 200); // nothing after `to`
-  assert.equal(yearRows({ '2028-12-31': 3 }, new Date('2028-12-31'))[0].weeks.length, 54); // leap year from a Saturday
+  const w = weekly(all, new Date('2026-11-14'))!;
+  assert.equal(w.first, 2023); // 2021: 1 < 2 % of 200
+  assert.deepEqual(w.weeks.slice(0, 2), [100, 5]); // 2023-01-01 is a Sunday: one week, then the next
+  assert.equal(w.weeks.reduce((a, b) => a + b), 305); // nothing after `to`
+  assert.equal(w.totals.get(2026), 200);
+  assert.equal(weekly({}, new Date('2026-11-14')), null);
 });
 
-test('render: night card with glow and weekly rows across a 54-week year', () => {
+test('render: night card with stats, glow and a line with one stop per year', () => {
   const { from, to } = range(2028);
-  const svg = render({ gh: { '2028-12-31': 4, '2028-06-01': 1 }, ext: {}, from, to, label: 'in 2028', theme: 'night', years: true });
+  const gh = { '2028-12-31': 4, '2027-06-01': 1, '2026-06-01': 3 };
+  const svg = render({ gh, ext: { '2028-06-01': 2 }, from, to, label: 'in 2028', theme: 'night', years: true });
   assert.match(svg, /<rect width="100%" height="100%" fill="#172029"\/>/);
   assert.match(svg, /filter="url\(#glow\)"/);
-  assert.match(svg, />Weekly, all years</);
-  assert.match(svg, />2028<\/text>/);
-  const days = 366 + 54 + 5; // daily grid, one weekly row, legend
-  assert.equal(svg.match(/<rect x=/g)?.length, days + svg.match(/<rect x="[\d-]+" y="[\d-]+" width="12"/g)!.length);
+  assert.match(svg, /font-size="34"[^>]*>6<\/text>/); // 2028: 4 on GitHub + 2 on GitLab
+  assert.match(svg, />GitLab<\/text>.*>2<\/text>/);
+  assert.match(svg, />Every week since 2026</);
+  assert.equal(svg.match(/<circle/g)?.length, 3 + 1); // stops 2026, 2027, 2028, and today
+  assert.match(svg, /fill="#f0b54d" stroke="#8a5806"/); // the current year's stop is lit
+  assert.doesNotMatch(svg, />Less</); // the night card has no legend
+  assert.doesNotMatch(render({ gh, ext: {}, from, to, label: 'in 2028', theme: 'night' }), />GitHub</); // no stats without GitLab
 });
 
 test('render labels the month in the second-to-last column', () => {
