@@ -71,7 +71,7 @@ export function render(o: { gh: Days; ext: Days; from: Date; to: Date; label: st
     `<text x="0" y="14" font-size="14" fill="${fg}">${fmt(gh + ext)} contributions ${o.label}</text>`,
     ext > 0 ? label(width, 14, `GitHub ${fmt(gh)} · GitLab ${fmt(ext)}`, true) : '',
     ...days
-      .filter(({ d, col }) => d.getUTCDate() === 1 && col < cols - 2)
+      .filter(({ d, col }) => d.getUTCDate() === 1 && col < cols - 1) // a label needs two columns
       .map(({ d, col }) => label(LEFT + col * STEP, TOP - 8, MONTHS[d.getUTCMonth()])),
     ...(['Mon', 'Wed', 'Fri'] as const).map((s, i) => label(0, TOP + (2 * i + 1) * STEP + 9, s)),
     ...days.map(({ d, n, col }) => rect(LEFT + col * STEP, TOP + d.getUTCDay() * STEP, cells[level(n)])),

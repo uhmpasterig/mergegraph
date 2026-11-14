@@ -1,0 +1,51 @@
+# mergegraph
+
+Your GitHub contribution graph plus the commits you made on a self-hosted GitLab, for every year. One SVG for your profile README, refreshed hourly.
+
+Your GitLab never talks to this service. A scheduled job in your own GitLab counts your commits per day and publishes only `{"2024-03-01": 7, …}` to your profile repo. No project names, commit messages or instance URLs leave GitLab, and both tokens stay in your GitLab CI variables.
+
+## Embed
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://mergegraph.vercel.app/USER.svg?theme=dark">
+  <img alt="Contributions" src="https://mergegraph.vercel.app/USER.svg">
+</picture>
+```
+
+The default is the last 12 months; `?year=2023` shows one calendar year. Without the setup below you get your plain GitHub graph.
+
+## Add your GitLab commits
+
+1. In GitLab, create a personal access token with the scope `read_api`.
+2. In GitHub, create a fine-grained token for the single repository `USER/USER` with **Contents: Read and write**.
+3. In any GitLab project of yours, add both as masked CI/CD variables `GITLAB_TOKEN` and `GITHUB_TOKEN`, add this job and a daily pipeline schedule:
+
+```yaml
+mergegraph:
+  image: node:22-alpine
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script: npx -y mergegraph
+```
+
+To see what would be published, run it without `GITHUB_TOKEN`. It then only prints the JSON:
+
+```sh
+GITLAB_URL=https://gitlab.example.com GITLAB_TOKEN=glpat-… npx mergegraph
+```
+
+The job writes `mergegraph.json` to the branch `mergegraph` of `USER/USER`, so you can always read exactly what is public. It uses its own branch because commits on the default branch would count as GitHub contributions themselves.
+
+**What counts:** every commit you authored (with any of your GitLab emails) on any branch of every project you are a member of, all years, each commit once, by its UTC date. Commits in a GitLab mirror of a GitHub repository count on both sides.
+
+## Self-host
+
+Deploy this repository to Vercel and set `GITHUB_TOKEN` to any GitHub token. It needs no scopes; it only reads public contribution calendars.
+
+## Develop
+
+```sh
+npm install
+npm run check
+```

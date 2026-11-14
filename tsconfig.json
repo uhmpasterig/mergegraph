@@ -4,9 +4,8 @@
     "module": "nodenext",
     "strict": true,
     "noEmit": true,
-    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["api", "test.ts"]
+  "include": ["api"]
 }

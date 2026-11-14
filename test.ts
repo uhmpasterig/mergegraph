@@ -38,6 +38,11 @@ test('render adds both sources inside the range only', () => {
   assert.doesNotMatch(render({ gh, ext: {}, from, to, label: 'in 2024', theme: 'dark' }), /GitLab/);
 });
 
+test('render labels the month in the second-to-last column', () => {
+  const svg = render({ gh: {}, ext: {}, ...range(null, new Date('2026-11-14')), label: '', theme: 'light' });
+  assert.match(svg, />Nov<\/text>/);
+});
+
 test('cli counts each own commit once and publishes it on the mergegraph branch', async () => {
   const commit = (id: string, email: string, date: string) => ({ id, author_email: email, authored_date: date });
   const commits: Record<string, Record<string, object[]>> = {
