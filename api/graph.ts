@@ -5,18 +5,19 @@
 export type Days = Record<string, number>;
 type Theme = 'light' | 'dark' | 'night';
 
+const SYSTEM = "-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif";
 const THEMES = {
   light: {
-    bg: '', pad: 0, rx: 2, glow: false, line: '#d1d9e0', title: ['#1f2328', 14, 400], text: '#59636e', strong: '#59636e',
+    bg: '', pad: 0, rx: 2, glow: false, font: SYSTEM, line: '#d1d9e0', title: ['#1f2328', 14, ''], text: '#59636e', strong: '#59636e',
     cells: ['#eff2f5', '#aceebb', '#4ac26b', '#2da44e', '#116329'],
   },
   dark: {
-    bg: '', pad: 0, rx: 2, glow: false, line: '#3d444d', title: ['#f0f6fc', 14, 400], text: '#9198a1', strong: '#9198a1',
+    bg: '', pad: 0, rx: 2, glow: false, font: SYSTEM, line: '#3d444d', title: ['#f0f6fc', 14, ''], text: '#9198a1', strong: '#9198a1',
     cells: ['#151b23', '#033a16', '#196c2e', '#2ea043', '#56d364'],
   },
   // A slate night sky; each day is a window: dark, glowing, dim, lit, lamp-bright.
   night: {
-    bg: '#172029', pad: 28, rx: 0, glow: true, line: 'rgba(255,255,255,0.11)', title: ['#ffffff', 17, 600], text: '#9aa5b0', strong: '#c9d1d9',
+    bg: '#172029', pad: 28, rx: 0, glow: true, font: `Inter,${SYSTEM}`, line: 'rgba(255,255,255,0.11)', title: ['#ffffff', 17, '600'], text: '#9aa5b0', strong: '#c9d1d9',
     cells: ['#1e252c', '#5c5034', '#a07b3c', '#f0c46a', '#ffe3a3'],
   },
 } as const satisfies Record<Theme, unknown>;
@@ -30,12 +31,13 @@ const TOTAL = 56; // year totals right of the weekly rows
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-/** The file is user-controlled: keep only `"YYYY-MM-DD": positive integer`. */
+/** The file is user-controlled: keep only `"YYYY-MM-DD": positive integer`, real dates since GitHub exists. */
 export function clean(raw: unknown): Days {
   const days: Days = {};
   if (typeof raw !== 'object' || raw === null) return days;
   for (const [date, n] of Object.entries(raw as Record<string, unknown>)) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && typeof n === 'number' && Number.isSafeInteger(n) && n > 0) days[date] = n;
+    const real = /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= '2008-01-01' && !Number.isNaN(Date.parse(date)) && iso(new Date(date)) === date;
+    if (real && typeof n === 'number' && Number.isSafeInteger(n) && n > 0) days[date] = n;
   }
   return days;
 }
@@ -114,7 +116,7 @@ export function render(o: { gh: Days; ext: Days; from: Date; to: Date; label: st
   let y = t.pad + (t.pad ? 50 : 40);
   const level = levels(days.map((x) => x.n));
   const parts = [
-    label(t.pad, head, `${fmt(gh + ext)} contributions ${o.label}`, ` font-size="${titleSize}" font-weight="${titleWeight}" fill="${titleColor}"`),
+    label(t.pad, head, `${fmt(gh + ext)} contributions ${o.label}`, ` font-size="${titleSize}"${titleWeight ? ` font-weight="${titleWeight}"` : ''} fill="${titleColor}"`),
     ext > 0 ? label(right, head, `GitHub ${fmt(gh)} · GitLab ${fmt(ext)}`, end) : '',
     ...days
       .filter(({ d, col }) => d.getUTCDate() === 1 && col < cols - 1) // a label needs two columns
@@ -148,7 +150,7 @@ export function render(o: { gh: Days; ext: Days; from: Date; to: Date; label: st
   const height = y + CELL + (t.pad || 4);
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
-    `font-family="Inter,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif" font-size="12" fill="${t.text}">` +
+    `font-family="${t.font}" font-size="12" fill="${t.text}">` +
     (t.bg ? `<rect width="100%" height="100%" fill="${t.bg}"/>` : '') +
     (glow.length
       ? `<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>` +

@@ -14,10 +14,50 @@ test('GET rejects invalid params before any fetch', async () => {
 });
 
 test('clean keeps only date → positive integer', () => {
-  const raw = { '2024-01-02': 3, '2024-01-03': '<script>', x: 1, '2024-01-04': -1, '2024-01-05': 1.5, '2024-01-06': 0 };
+  const raw = {
+    '2024-01-02': 3, '2024-01-03': '<script>', x: 1, '2024-01-04': -1, '2024-01-05': 1.5, '2024-01-06': 0,
+    '0050-01-01': 9, '2007-12-31': 1, '2024-02-30': 1, // no year rows back to antiquity, no impossible dates
+  };
   assert.deepEqual(clean(raw), { '2024-01-02': 3 });
   assert.deepEqual(clean([1, 2]), {});
   assert.deepEqual(clean(null), {});
+});
+
+test('GET asks GitHub for whole calendar years and maps its errors', async () => {
+  const real = globalThis.fetch;
+  const queries: string[] = [];
+  const aliases = (q: string) => [...q.matchAll(/y(\d{4}):/g)].map((m) => m[1]);
+  const cal = { contributionCalendar: { weeks: [{ contributionDays: [{ date: '2024-03-04', contributionCount: 5 }] }] } };
+  let reply: (query: string) => unknown = () => ({});
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith('https://raw.githubusercontent.com/')) return new Response('', { status: 404 });
+    const { query } = JSON.parse(String(init?.body)) as { query: string };
+    queries.push(query);
+    return Response.json(reply(query));
+  }) as typeof fetch;
+  try {
+    reply = (q) =>
+      q.includes('contributionYears')
+        ? { data: { user: { contributionsCollection: { contributionYears: [2024, 2019] } } } }
+        : { data: { user: Object.fromEntries(aliases(q).map((y) => [`y${y}`, cal])) } };
+    const res = await GET(new Request('http://mock/api/graph?user=octo&years=all&theme=night'));
+    assert.equal(res.status, 200);
+    assert.match(await res.text(), />2024<\/text>/);
+    assert.deepEqual(aliases(queries[1]), ['2024', '2019']);
+    assert.match(queries[0], /contributionYears/);
+    await GET(new Request('http://mock/api/graph?user=octo&year=2024'));
+    assert.deepEqual(aliases(queries[2]), ['2024']);
+    const now = new Date().getUTCFullYear();
+    await GET(new Request('http://mock/api/graph?user=octo'));
+    assert.deepEqual(aliases(queries[3]), [String(now - 1), String(now)]);
+
+    reply = () => ({ data: { user: null }, errors: [{ type: 'NOT_FOUND', message: 'no such user' }] });
+    assert.equal((await GET(new Request('http://mock/api/graph?user=octo&years=all'))).status, 404);
+    reply = () => ({ errors: [{ type: 'RATE_LIMITED', message: 'slow down' }] });
+    await assert.rejects(GET(new Request('http://mock/api/graph?user=octo')), /slow down/);
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 test('levels follow the quartiles of non-zero days', () => {
