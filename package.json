@@ -10,7 +10,10 @@
     "readme"
   ],
   "license": "MIT",
-  "repository": "github:uhmpasterig/mergegraph",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uhmpasterig/mergegraph.git"
+  },
   "type": "module",
   "bin": {
     "mergegraph": "cli.js"
