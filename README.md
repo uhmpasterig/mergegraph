@@ -8,8 +8,8 @@ Your GitLab never talks to this service. A scheduled job in your own GitLab coun
 
 ```html
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://mergegraph.vercel.app/USER.svg?theme=dark">
-  <img alt="Contributions" src="https://mergegraph.vercel.app/USER.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://mergegraph-snowy.vercel.app/USER.svg?theme=dark">
+  <img alt="Contributions" src="https://mergegraph-snowy.vercel.app/USER.svg">
 </picture>
 ```
 
