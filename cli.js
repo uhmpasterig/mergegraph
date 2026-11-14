@@ -31,20 +31,28 @@ async function* pages(path, skipUnreadable = false) {
 }
 
 const me = await (await gitlab('/user')).json();
-const emails = new Set([me.email, me.commit_email, me.public_email]);
+const emails = new Set([me.email, me.commit_email, me.public_email].filter(Boolean));
 for await (const { email } of pages('/user/emails')) emails.add(email);
-const own = new Set([...emails].filter(Boolean).map((e) => e.toLowerCase()));
+const own = new Set([...emails].map((e) => e.toLowerCase()));
 
 const seen = new Set();
 const days = {};
 for await (const project of pages('/projects?membership=true&simple=true')) {
-  for (const email of own) {
-    const path = `/projects/${project.id}/repository/commits?all=true&author=${encodeURIComponent(email)}`;
-    for await (const commit of pages(path, true)) { // skips projects whose repository you can't read
-      if (seen.has(commit.id) || !own.has(commit.author_email.toLowerCase())) continue;
-      seen.add(commit.id);
-      const day = new Date(commit.authored_date).toISOString().slice(0, 10);
-      days[day] = (days[day] ?? 0) + 1;
+  const main = project.default_branch;
+  if (!main) continue; // empty repository
+  // Branches only (not all=true, which also walks GitLab's merge-request and keep-around refs and
+  // would count every rebased MR version): the default branch in full, the others where they differ.
+  // Skips projects whose repository you can't read.
+  for await (const branch of pages(`/projects/${project.id}/repository/branches`, true)) {
+    const ref = branch.name === main ? main : `${main}..${branch.name}`;
+    for (const email of emails) { // as GitLab stores it: git log --author is case-sensitive
+      const path = `/projects/${project.id}/repository/commits?ref_name=${encodeURIComponent(ref)}&author=${encodeURIComponent(email)}`;
+      for await (const commit of pages(path, true)) {
+        if (seen.has(commit.id) || !own.has(commit.author_email.toLowerCase())) continue;
+        seen.add(commit.id);
+        const day = new Date(commit.authored_date).toISOString().slice(0, 10);
+        days[day] = (days[day] ?? 0) + 1;
+      }
     }
   }
 }

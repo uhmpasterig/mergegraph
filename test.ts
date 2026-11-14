@@ -5,7 +5,13 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { AddressInfo } from 'node:net';
-import { clean, levels, range, render } from './api/graph.ts';
+import { GET, clean, levels, range, render } from './api/graph.ts';
+
+test('GET rejects invalid params before any fetch', async () => {
+  for (const qs of ['user=../etc', 'user=octo&year=1999', 'user=octo&theme=pink']) {
+    assert.equal((await GET(new Request(`http://mock/api/graph?${qs}`))).status, 400);
+  }
+});
 
 test('clean keeps only date → positive integer', () => {
   const raw = { '2024-01-02': 3, '2024-01-03': '<script>', x: 1, '2024-01-04': -1, '2024-01-05': 1.5, '2024-01-06': 0 };
@@ -45,13 +51,15 @@ test('render labels the month in the second-to-last column', () => {
 
 test('cli counts each own commit once and publishes it on the mergegraph branch', async () => {
   const commit = (id: string, email: string, date: string) => ({ id, author_email: email, authored_date: date });
-  const commits: Record<string, Record<string, object[]>> = {
-    '1': {
-      'me@corp.test': [commit('a', 'me@corp.test', '2024-03-01T23:30:00+01:00'), commit('b', 'other@corp.test', '2024-03-01T10:00:00Z')],
-      'old@corp.test': [commit('c', 'Old@Corp.test', '2024-03-02T00:30:00+02:00')],
-    },
-    '2': { 'me@corp.test': [commit('a', 'me@corp.test', '2024-03-01T23:30:00+01:00'), commit('d', 'me@corp.test', '2024-03-05T10:00:00Z')] },
+  const a = commit('a', 'me@corp.test', '2024-03-01T23:30:00+01:00');
+  // Keyed "<project> <ref_name> <author>"; author matches case-sensitively like git log --author.
+  const commits: Record<string, object[]> = {
+    '1 main me@corp.test': [a, commit('b', 'other@corp.test', '2024-03-01T10:00:00Z')],
+    '1 main Old@Corp.test': [commit('c', 'Old@Corp.test', '2024-03-02T00:30:00+02:00')],
+    '1 main..feat me@corp.test': [commit('e', 'me@corp.test', '2024-03-06T08:00:00Z')],
+    '2 main me@corp.test': [a, commit('d', 'me@corp.test', '2024-03-05T10:00:00Z')],
   };
+  const branchLists: Record<string, object[]> = { '1': [{ name: 'main' }, { name: 'feat' }], '2': [{ name: 'main' }] };
   let file: { content: string; sha: string } | null = null;
   let branch = false;
   const puts: { branch: string; content: string }[] = [];
@@ -67,15 +75,23 @@ test('cli counts each own commit once and publishes it on the mergegraph branch'
       };
       const route = `${req.method} ${url.pathname}`;
       const page = url.searchParams.get('page');
+      const branches = /^GET \/api\/v4\/projects\/(\d)\/repository\/branches$/.exec(route)?.[1];
       const project = /^GET \/api\/v4\/projects\/(\d)\/repository\/commits$/.exec(route)?.[1];
       if (route === 'GET /api/v4/user') return send(200, { email: 'me@corp.test', commit_email: 'me@corp.test', public_email: '' });
       if (route === 'GET /api/v4/user/emails') return send(200, [{ email: 'Old@Corp.test' }]);
       if (route === 'GET /api/v4/projects' && req.headers['private-token'] === 'read_user-only') return send(403, {});
       if (route === 'GET /api/v4/projects') {
-        return page === '1' ? send(200, [{ id: 1 }], { 'x-next-page': '2' }) : send(200, [{ id: 2 }, { id: 3 }], { 'x-next-page': '' });
+        const empty = { id: 4, default_branch: null }; // touching it hits no route → 500
+        return page === '1'
+          ? send(200, [{ id: 1, default_branch: 'main' }], { 'x-next-page': '2' })
+          : send(200, [{ id: 2, default_branch: 'main' }, { id: 3, default_branch: 'main' }, empty], { 'x-next-page': '' });
       }
-      if (project === '3') return send(403, { message: '403 Forbidden' });
-      if (project) return send(200, commits[project][url.searchParams.get('author') ?? ''] ?? []);
+      if (branches === '3') return send(403, { message: '403 Forbidden' });
+      if (branches && branchLists[branches]) return send(200, branchLists[branches]);
+      if (project && req.headers['private-token'] === 'flaky') return send(500, {});
+      if (project) {
+        return send(200, commits[`${project} ${url.searchParams.get('ref_name')} ${url.searchParams.get('author')}`] ?? []);
+      }
       if (route === 'GET /gh/user') return send(200, { login: 'octo' });
       if (route === 'GET /gh/repos/octo/octo/contents/mergegraph.json') return file ? send(200, file) : send(404, {});
       if (route === 'GET /gh/repos/octo/octo/git/ref/heads/mergegraph') return branch ? send(200, {}) : send(404, {});
@@ -97,7 +113,7 @@ test('cli counts each own commit once and publishes it on the mergegraph branch'
     promisify(execFile)(process.execPath, [fileURLToPath(new URL('./cli.js', import.meta.url))], {
       env: { PATH: process.env.PATH ?? '', GITLAB_URL: `${base}/`, GITLAB_TOKEN: 'gl', ...env },
     });
-  const expected = { '2024-03-01': 2, '2024-03-05': 1 };
+  const expected = { '2024-03-01': 2, '2024-03-05': 1, '2024-03-06': 1 };
 
   try {
     assert.deepEqual(JSON.parse((await run({})).stdout), expected);
@@ -109,7 +125,8 @@ test('cli counts each own commit once and publishes it on the mergegraph branch'
     assert.deepEqual(JSON.parse(Buffer.from(puts[0].content, 'base64').toString()), expected);
     assert.match((await run(gh)).stdout, /unchanged/);
     await assert.rejects(run({ ...gh, GITLAB_TOKEN: 'read_user-only' }), /GET \/projects.*403/);
-    assert.equal(puts.length, 1); // a token without access must never publish an empty file
+    await assert.rejects(run({ ...gh, GITLAB_TOKEN: 'flaky' }), /commits.*500/);
+    assert.equal(puts.length, 1); // failures must never publish an empty or partial file
   } finally {
     server.close();
   }

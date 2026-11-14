@@ -91,6 +91,7 @@ const QUERY = `query ($login: String!, $from: DateTime!, $to: DateTime!) {
     contributionCalendar { weeks { contributionDays { date contributionCount } } } } }
 }`;
 type Calendar = {
+  errors?: { type?: string; message: string }[];
   data?: {
     user: {
       contributionsCollection: {
@@ -108,9 +109,13 @@ async function github(login: string, from: Date, to: Date): Promise<Days | null>
       query: QUERY,
       variables: { login, from: from.toISOString(), to: new Date(to.getTime() + DAY - 1).toISOString() },
     }),
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`GitHub GraphQL: ${res.status}`);
-  const user = ((await res.json()) as Calendar).data?.user;
+  const json = (await res.json()) as Calendar;
+  const error = json.errors?.find((e) => e.type !== 'NOT_FOUND');
+  if (error) throw new Error(`GitHub GraphQL: ${error.message}`);
+  const user = json.data?.user;
   if (!user) return null;
   const days: Days = {};
   for (const week of user.contributionsCollection.contributionCalendar.weeks) {
@@ -120,21 +125,30 @@ async function github(login: string, from: Date, to: Date): Promise<Days | null>
 }
 
 async function extra(login: string): Promise<Days> {
-  const res = await fetch(`https://raw.githubusercontent.com/${login}/${login}/mergegraph/mergegraph.json`);
-  return res.ok ? clean(await res.json().catch(() => null)) : {};
+  const res = await fetch(`https://raw.githubusercontent.com/${login}/${login}/mergegraph/mergegraph.json`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (res.status === 404) return {}; // no GitLab set up
+  if (!res.ok) throw new Error(`mergegraph.json: ${res.status}`); // don't cache a graph without it
+  if (Number(res.headers.get('content-length')) > 1_000_000) return {}; // decades of days are ~50 kB
+  return clean(await res.json().catch(() => null));
 }
 
 export async function GET(request: Request): Promise<Response> {
   const q = new URL(request.url).searchParams;
   const user = q.get('user') ?? '';
   const year = q.get('year');
-  if (!/^[a-z\d][a-z\d-]{0,38}$/i.test(user) || (year !== null && !/^20\d\d$/.test(year))) {
+  const theme = q.get('theme') ?? 'light';
+  if (
+    !/^[a-z\d][a-z\d-]{0,38}$/i.test(user) ||
+    (year !== null && !/^20\d\d$/.test(year)) ||
+    (theme !== 'light' && theme !== 'dark')
+  ) {
     return new Response('Usage: /<github-user>.svg?year=2024&theme=dark\n', { status: 400 });
   }
   const { from, to } = range(year === null ? null : Number(year));
   const [gh, ext] = await Promise.all([github(user, from, to), extra(user)]);
   if (!gh) return new Response(`GitHub user ${user} not found\n`, { status: 404 });
-  const theme: Theme = q.get('theme') === 'dark' ? 'dark' : 'light';
   return new Response(render({ gh, ext, from, to, label: year ? `in ${year}` : 'in the last year', theme }), {
     headers: {
       'content-type': 'image/svg+xml; charset=utf-8',

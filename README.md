@@ -26,18 +26,22 @@ mergegraph:
   image: node:22-alpine
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-  script: npx -y mergegraph
+  script: npx -y mergegraph@0.1.0
 ```
+
+Keep the version pinned: the job runs with a token that can read all your GitLab code. Rather not trust npm at all? Copy [`cli.js`](cli.js) (one short file, no dependencies) into the project and run `node cli.js` instead.
 
 To see what would be published, run it without `GITHUB_TOKEN`. It then only prints the JSON:
 
 ```sh
-GITLAB_URL=https://gitlab.example.com GITLAB_TOKEN=glpat-… npx mergegraph
+GITLAB_URL=https://gitlab.example.com GITLAB_TOKEN=glpat-… npx -y mergegraph@0.1.0
 ```
 
 The job writes `mergegraph.json` to the branch `mergegraph` of `USER/USER`, so you can always read exactly what is public. It uses its own branch because commits on the default branch would count as GitHub contributions themselves.
 
 **What counts:** every commit you authored (with any of your GitLab emails) on any branch of every project you are a member of, all years, each commit once, by its UTC date. Commits in a GitLab mirror of a GitHub repository count on both sides.
+
+GitHub only counts commits on default branches, so the GitHub part of the graph can be lower than you expect for your own repos.
 
 ## Self-host
 
