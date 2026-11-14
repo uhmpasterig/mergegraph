@@ -153,7 +153,10 @@ export async function GET(request: Request): Promise<Response> {
     headers: {
       'content-type': 'image/svg+xml; charset=utf-8',
       'content-security-policy': "default-src 'none'",
-      'cache-control': 'public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400',
+      // Separate headers: with s-maxage in Cache-Control, Vercel sends max-age=0 downstream and
+      // GitHub's image proxy would hit us on every profile view.
+      'cache-control': 'public, max-age=3600',
+      'vercel-cdn-cache-control': 'max-age=3600, stale-while-revalidate=86400',
     },
   });
 }
