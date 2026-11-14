@@ -1,0 +1,31 @@
+{
+  "name": "mergegraph",
+  "version": "0.1.0",
+  "description": "Your GitHub contribution graph plus your commits on a self-hosted GitLab, all years. Only day counts leave GitLab.",
+  "keywords": [
+    "github",
+    "gitlab",
+    "contributions",
+    "profile",
+    "readme"
+  ],
+  "license": "MIT",
+  "repository": "github:uhmpasterig/mergegraph",
+  "type": "module",
+  "bin": {
+    "mergegraph": "cli.js"
+  },
+  "files": [
+    "cli.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "check": "tsc && node --test test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  }
+}

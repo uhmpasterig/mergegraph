@@ -1,0 +1,3 @@
+{
+  "rewrites": [{ "source": "/:user.svg", "destination": "/api/graph?user=:user" }]
+}
