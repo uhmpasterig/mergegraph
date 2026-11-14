@@ -15,6 +15,14 @@ Your GitLab never talks to this service. A scheduled job in your own GitLab coun
 
 The default is the last 12 months; `?year=2023` shows one calendar year. Without the setup below you get your plain GitHub graph.
 
+| Option | Effect |
+| --- | --- |
+| `theme=light` / `dark` | GitHub's look (default `light`) |
+| `theme=night` | A card of its own: every day a window at night, from dark to lamp-bright. Looks the same in light and dark mode, so no `<picture>` needed. |
+| `years=all` | Adds one row per year below the graph, one cell per week, all on one scale. Quiet early years are left out. |
+
+![night theme with all years](https://mergegraph-snowy.vercel.app/uhmpasterig.svg?theme=night&years=all)
+
 ## Add your GitLab commits
 
 1. In GitLab, create a personal access token with the scope `read_api`.

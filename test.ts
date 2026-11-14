@@ -5,10 +5,10 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { AddressInfo } from 'node:net';
-import { GET, clean, levels, range, render } from './api/graph.ts';
+import { GET, clean, levels, range, render, yearRows } from './api/graph.ts';
 
 test('GET rejects invalid params before any fetch', async () => {
-  for (const qs of ['user=../etc', 'user=octo&year=1999', 'user=octo&theme=pink']) {
+  for (const qs of ['user=../etc', 'user=octo&year=1999', 'user=octo&theme=pink', 'user=octo&years=3']) {
     assert.equal((await GET(new Request(`http://mock/api/graph?${qs}`))).status, 400);
   }
 });
@@ -42,6 +42,26 @@ test('render adds both sources inside the range only', () => {
   assert.equal(svg.match(/<rect/g)?.length, 366 + 5);
   assert.equal(svg.match(/fill="#116329"/g)?.length, 2); // the 7-commit day and the legend
   assert.doesNotMatch(render({ gh, ext: {}, from, to, label: 'in 2024', theme: 'dark' }), /GitLab/);
+});
+
+test('yearRows: newest first, weekly sums, gap years kept, sparse leading years dropped', () => {
+  const all = { '2021-03-01': 1, '2023-01-01': 60, '2023-01-07': 40, '2023-01-08': 5, '2026-01-05': 200, '2026-12-01': 9 };
+  const rows = yearRows(all, new Date('2026-11-14'));
+  assert.deepEqual(rows.map((r) => [r.year, r.total]), [[2026, 200], [2025, 0], [2024, 0], [2023, 105]]); // 2021: 1 < 2 % of 200
+  assert.deepEqual(rows[3].weeks.slice(0, 2), [100, 5]); // 2023-01-01 is a Sunday: one week, then the next
+  assert.equal(rows[0].weeks.reduce((a, b) => a + b), 200); // nothing after `to`
+  assert.equal(yearRows({ '2028-12-31': 3 }, new Date('2028-12-31'))[0].weeks.length, 54); // leap year from a Saturday
+});
+
+test('render: night card with glow and weekly rows across a 54-week year', () => {
+  const { from, to } = range(2028);
+  const svg = render({ gh: { '2028-12-31': 4, '2028-06-01': 1 }, ext: {}, from, to, label: 'in 2028', theme: 'night', years: true });
+  assert.match(svg, /<rect width="100%" height="100%" fill="#172029"\/>/);
+  assert.match(svg, /filter="url\(#glow\)"/);
+  assert.match(svg, />Weekly, all years</);
+  assert.match(svg, />2028<\/text>/);
+  const days = 366 + 54 + 5; // daily grid, one weekly row, legend
+  assert.equal(svg.match(/<rect x=/g)?.length, days + svg.match(/<rect x="[\d-]+" y="[\d-]+" width="12"/g)!.length);
 });
 
 test('render labels the month in the second-to-last column', () => {
